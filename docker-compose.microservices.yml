@@ -1,0 +1,167 @@
+# ==============================================================================
+# TRATAMIENTO B: PATRÓN STRANGLER FIG (MICROSERVICIOS DESACOPLADOS)
+# Proyecto: Tópicos Avanzados en Ingeniería de Software - UNSA (Hito 2)
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # 1. API Gateway (Punto de entrada único / Proxy inverso)
+  api-gateway:
+    image: nginx:1.25-alpine
+    container_name: tais-api-gateway
+    restart: unless-stopped
+    ports:
+      - "${PORT_GATEWAY:-8123}:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - hievents-core
+      - ticket-reservation-service
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 128M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
+    networks:
+      - strangler-net
+
+  # 2. Monolito Residual Hi.Events (Atiende frontend, catálogo general y admin)
+  hievents-core:
+    image: daveearley/hi.events-all-in-one:latest
+    container_name: tais-hievents-core
+    restart: unless-stopped
+    environment:
+      - APP_KEY=${APP_KEY:-base64:XG8L90uVb8FqM1zE9s4f5A2bC3dE4fG5h6i7j8k9l0m=}
+      - JWT_SECRET=${JWT_SECRET:-supersecretjwtstringforhieventsbenchmark2026unsa}
+      - VITE_FRONTEND_URL=http://localhost:8123
+      - VITE_API_URL_CLIENT=http://localhost:8123/api
+      - VITE_API_URL_SERVER=http://localhost:80/api
+      - VITE_APP_NAME=Hi.Events
+      - LOG_CHANNEL=stderr
+      - QUEUE_CONNECTION=redis
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-changeme_benchmark}@postgres-core:5432/hievents
+      - REDIS_HOST=redis-core
+    depends_on:
+      postgres-core:
+        condition: service_healthy
+      redis-core:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: '0.60'
+          memory: 768M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - strangler-net
+
+  # 3. Microservicio de Reservas (Bounded Context crítico extraído)
+  ticket-reservation-service:
+    build:
+      context: ./services/ticket-reservation-service
+      dockerfile: Dockerfile
+    container_name: tais-ticket-reservation-service
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - DB_HOST=postgres-reservations
+      - DB_PORT=5432
+      - DB_NAME=hievents_reservations
+      - DB_USER=postgres
+      - DB_PASSWORD=${DB_RESERVATIONS_PASSWORD:-changeme_benchmark}
+    depends_on:
+      postgres-reservations:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.60'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - strangler-net
+
+  # 4. Base de datos aislada para el Microservicio de Reservas
+  postgres-reservations:
+    image: postgres:17-alpine
+    container_name: tais-postgres-reservations
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hievents_reservations
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_RESERVATIONS_PASSWORD:-changeme_benchmark}
+    volumes:
+      - pgdata-reservations:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hievents_reservations"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.35'
+          memory: 384M
+        reservations:
+          cpus: '0.15'
+          memory: 128M
+    networks:
+      - strangler-net
+
+  # 5. Base de datos para el Monolito Residual Hi.Events
+  postgres-core:
+    image: postgres:17-alpine
+    container_name: tais-postgres-core
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hievents
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_benchmark}
+    volumes:
+      - pgdata-core:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hievents"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 192M
+        reservations:
+          cpus: '0.10'
+          memory: 96M
+    networks:
+      - strangler-net
+
+  # 6. Redis para colas y caché
+  redis-core:
+    image: redis:7-alpine
+    container_name: tais-redis-core
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 64M
+    networks:
+      - strangler-net
+
+# Cuota total combinada: 0.20 + 0.60 + 0.60 + 0.35 + 0.15 + 0.10 = 2.0 CPUs | 128 + 768 + 512 + 384 + 192 + 64 = 2048 MB RAM
+networks:
+  strangler-net:
+    driver: bridge
+
+volumes:
+  pgdata-reservations:
+  pgdata-core:
+

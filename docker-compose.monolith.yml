@@ -1,0 +1,86 @@
+# ==============================================================================
+# TRATAMIENTO A: MONOLITO ORIGINAL HI.EVENTS (LÍNEA BASE)
+# Proyecto: Tópicos Avanzados en Ingeniería de Software - UNSA (Hito 2)
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # Monolito Hi.Events (All-in-One: Nginx + PHP-FPM + Laravel Backend + React Frontend)
+  hievents-monolith:
+    image: daveearley/hi.events-all-in-one:latest
+    container_name: tais-hievents-monolith
+    restart: unless-stopped
+    ports:
+      - "${PORT_MONOLITH:-8123}:80"
+    environment:
+      - APP_KEY=${APP_KEY:-base64:XG8L90uVb8FqM1zE9s4f5A2bC3dE4fG5h6i7j8k9l0m=}
+      - JWT_SECRET=${JWT_SECRET:-supersecretjwtstringforhieventsbenchmark2026unsa}
+      - VITE_FRONTEND_URL=http://localhost:8123
+      - VITE_API_URL_CLIENT=http://localhost:8123/api
+      - VITE_API_URL_SERVER=http://localhost:80/api
+      - VITE_APP_NAME=Hi.Events
+      - LOG_CHANNEL=stderr
+      - QUEUE_CONNECTION=redis
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-changeme_benchmark}@postgres-monolith:5432/hievents
+      - REDIS_HOST=redis-monolith
+    depends_on:
+      postgres-monolith:
+        condition: service_healthy
+      redis-monolith:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: '1.25'
+          memory: 1408M
+        reservations:
+          cpus: '0.50'
+          memory: 512M
+    networks:
+      - monolith-net
+
+  # Base de Datos Relacional del Monolito
+  postgres-monolith:
+    image: postgres:17-alpine
+    container_name: tais-postgres-monolith
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hievents
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_benchmark}
+    volumes:
+      - pgdata-monolith:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hievents"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+    networks:
+      - monolith-net
+
+  # Motor de Caché y Colas en Memoria
+  redis-monolith:
+    image: redis:7-alpine
+    container_name: tais-redis-monolith
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+    networks:
+      - monolith-net
+
+networks:
+  monolith-net:
+    driver: bridge
+
+volumes:
+  pgdata-monolith:
+

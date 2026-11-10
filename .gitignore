@@ -1,0 +1,22 @@
+# Dependencias
+node_modules/
+vendor/
+
+# Archivos de entorno local
+.env
+.env.local
+
+# Datos de persistencia de Docker (ignorar volúmenes locales si se montan en carpeta)
+pgdata/
+pgdata_microservices/
+storage/
+*.log
+
+# Resultados y métricas locales generadas durante corridas
+benchmark/results/*.csv
+benchmark/results/*.json
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
